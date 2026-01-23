@@ -17,21 +17,17 @@ const {
 // =======================
 // 🔧 إعدادات السيرفر
 // =======================
-const SUPPORT_ROLE_ID = "1455718248493482007";           // رتبة الإدارة/الدعم (صلاحية التحكم)
-const TICKETS_CATEGORY_ID = "1455273132146294970";       // كاتقوري التكتات المفتوحة
-const LOG_CATEGORY_ID = "1455700238840102984";           // كاتقوري التكتات المقفولة/اللوق
-const TICKET_LOG_CHANNEL_ID = "1455703131500314788";     // روم التنبيه عند فتح التكت
+const STAFF_ROLE_ID = "1448055249762910299";            // رتبة الإدارة/الدعم (صلاحية التحكم)
+const TICKETS_CATEGORY_ID = "1455273132146294970";      // كاتقوري التكتات المفتوحة
+const LOG_CATEGORY_ID = "1455700238840102984";          // كاتقوري التكتات المقفولة/اللوق
+const TICKET_LOG_CHANNEL_ID = "1455703131500314788";    // روم التنبيه عند فتح التكت
 
-const TYPE_PING_ROLE = {
-  support: "1455718248493482007",        // رتبة تنبيه تكت الدعم
-  event: "1455718248493482007",          // رتبة تنبيه تكت الفعالية
-};
+// ✅ رول تنبيه واحد فقط (للدعم + الفعاليات)
+const PING_ROLE_ID = "1455718248493482007";
 
 const PREFIX = "!";
-
-// صورة اللوحة الافتراضية (تقدر تغيرها بالأوامر)
 const DEFAULT_PANEL_IMAGE =
-  "https://cdn.discordapp.com/attachments/959615303170555964/1455276224459837674/ffgrfg.gif";
+  "https://media.discordapp.net/attachments/959615303170555964/1455276224459837674/ffgrfg.gif";
 
 // =======================
 // ✅ إعدادات قابلة للتغيير من الشات (config.json)
@@ -62,9 +58,11 @@ function loadConfig() {
     return { ...DEFAULT_CONFIG };
   }
 }
+
 function saveConfig(cfg) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf8");
 }
+
 let config = loadConfig();
 
 // =======================
@@ -108,7 +106,7 @@ function sanitizeUsername(name) {
 
 async function isStaff(member) {
   return (
-    member.roles.cache.has(SUPPORT_ROLE_ID) ||
+    member.roles.cache.has(STAFF_ROLE_ID) ||
     member.permissions.has(PermissionsBitField.Flags.Administrator) ||
     member.permissions.has(PermissionsBitField.Flags.ManageChannels)
   );
@@ -135,27 +133,29 @@ async function setTopicStatus(channel, status) {
 }
 
 // =======================
-// تنبيه فتح التكت
+// تنبيه فتح التكت (في روم التنبيه)
 // =======================
 async function sendOpenLog({ guild, user, channel, type }) {
   try {
     const logCh = await guild.channels.fetch(TICKET_LOG_CHANNEL_ID).catch(() => null);
     if (!logCh) return;
 
-    const pingRole = TYPE_PING_ROLE[type] ? `<@&${TYPE_PING_ROLE[type]}>` : "";
-    const t = TICKET_TYPES[type];
+    const t = TICKET_TYPES[type] || { label: "تذكرة", emoji: "🎫" };
 
     const embed = new EmbedBuilder()
       .setTitle("📩 تم فتح تذكرة جديدة")
       .setDescription(`**النوع:** ${t.emoji} ${t.label}\n**العضو:** ${user}\n**الروم:** ${channel}`)
       .setColor(0x9b59ff);
 
-    await logCh.send({ content: pingRole, embeds: [embed] });
+    // ✅ منشن رول واحد فقط
+    const ping = PING_ROLE_ID ? `<@&${PING_ROLE_ID}>` : "";
+
+    await logCh.send({ content: ping, embeds: [embed] });
   } catch {}
 }
 
 // =======================
-// Buttons builders
+// Buttons
 // =======================
 function openControlsRow() {
   return new ActionRowBuilder().addComponents(
@@ -179,7 +179,6 @@ async function createTicket(guild, user, type) {
   const t = TICKET_TYPES[type];
   const safeUser = sanitizeUsername(user.username) || user.id;
 
-  // ✅ اسم فريد (عشان يقدر يفتح أكثر من تكت)
   const unique = Date.now().toString().slice(-6);
   const name = `ticket-${t.prefix}-${safeUser}-${unique}`.slice(0, 100);
 
@@ -199,7 +198,7 @@ async function createTicket(guild, user, type) {
         ],
       },
       {
-        id: SUPPORT_ROLE_ID,
+        id: STAFF_ROLE_ID,
         allow: [
           PermissionsBitField.Flags.ViewChannel,
           PermissionsBitField.Flags.SendMessages,
@@ -346,21 +345,22 @@ client.on("interactionCreate", async (interaction) => {
     const type = interaction.values[0];
     if (!TICKET_TYPES[type]) return interaction.reply({ content: "اختيار غير صحيح.", ephemeral: true });
 
-    const result = await createTicket(interaction.guild, interaction.user, type);
-    if (!result.channel) return interaction.reply({ content: "صار خطأ في فتح التكت.", ephemeral: true });
-
-    return interaction.reply({ content: "✅ تم فتح التذكرة.", ephemeral: true });
+    try {
+      const result = await createTicket(interaction.guild, interaction.user, type);
+      if (!result.channel) return interaction.reply({ content: "صار خطأ في فتح التكت.", ephemeral: true });
+      return interaction.reply({ content: "✅ تم فتح التذكرة.", ephemeral: true });
+    } catch (e) {
+      console.error(e);
+      return interaction.reply({ content: "❌ فشل إنشاء التكت (تحقق من الكاتقوري/الصلاحيات).", ephemeral: true });
+    }
   }
 
-  // -----------------------
   // الأزرار داخل التكت
-  // -----------------------
   if (!interaction.isButton()) return;
 
   const channel = interaction.channel;
   const guild = interaction.guild;
 
-  // لازم يكون روم تكت
   if (!channel || channel.type !== ChannelType.GuildText || !channel.name.startsWith("ticket-")) {
     return interaction.reply({ content: "هذا الزر يعمل داخل التكت فقط.", ephemeral: true });
   }
@@ -368,15 +368,14 @@ client.on("interactionCreate", async (interaction) => {
   const member = await guild.members.fetch(interaction.user.id);
   const staff = await isStaff(member);
 
-  // كل أزرار الإدارة (تنبيه/إغلاق/استرجاع/حذف) للإدارة فقط
   const adminOnlyButtons = ["notify_owner", "close_ticket", "restore_ticket", "delete_ticket"];
   if (adminOnlyButtons.includes(interaction.customId) && !staff) {
     return interaction.reply({ content: "❌ هذا الزر للإدارة/الدعم فقط.", ephemeral: true });
   }
 
-  const { ownerId, type, status } = parseTopic(channel);
+  const { ownerId, type } = parseTopic(channel);
 
-  // زر تنبيه: يرسل DM لصاحب التكت
+  // زر تنبيه: DM لصاحب التكت
   if (interaction.customId === "notify_owner") {
     if (!ownerId) return interaction.reply({ content: "❌ ما قدرت أحدد صاحب التكت.", ephemeral: true });
 
@@ -394,45 +393,56 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "✅ تم إرسال تنبيه خاص لصاحب التكت.", ephemeral: true });
   }
 
-  // زر إغلاق: ينقل للوق + يمنع العضو من الكتابة (بدون حذف)
+  // إغلاق: ينقل للوق + يمنع العضو من الكتابة
   if (interaction.customId === "close_ticket") {
     if (!ownerId) return interaction.reply({ content: "❌ ما قدرت أحدد صاحب التكت.", ephemeral: true });
 
-    // اقفل صلاحيات العضو (يرى لكن ما يكتب)
-    await channel.permissionOverwrites.edit(ownerId, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: false,
-    }).catch(() => {});
+    await channel.permissionOverwrites
+      .edit(ownerId, {
+        ViewChannel: true,
+        ReadMessageHistory: true,
+        SendMessages: false,
+      })
+      .catch(() => {});
 
     await channel.setParent(LOG_CATEGORY_ID).catch(() => {});
     await setTopicStatus(channel, "closed");
 
-    // غير الأزرار: يظهر استرجاع + حذف فقط
-    const lastMsg = await channel.messages.fetch({ limit: 10 }).then(col => col.find(m => m.author.id === client.user.id)).catch(() => null);
+    const lastMsg = await channel.messages
+      .fetch({ limit: 10 })
+      .then((col) => col.find((m) => m.author.id === client.user.id))
+      .catch(() => null);
+
     if (lastMsg) {
       await lastMsg.edit({ components: [closedControlsRow()] }).catch(() => {});
     } else {
-      await channel.send({ content: "🔒 تم إغلاق التذكرة. (الإدارة تستطيع الاسترجاع)", components: [closedControlsRow()] }).catch(() => {});
+      await channel
+        .send({ content: "🔒 تم إغلاق التذكرة. (الإدارة تستطيع الاسترجاع)", components: [closedControlsRow()] })
+        .catch(() => {});
     }
 
     return interaction.reply({ content: "🔒 تم إغلاق التذكرة ونقلها للوق.", ephemeral: true });
   }
 
-  // زر استرجاع: يرجع للكـاتقوري المفتوح + يرجع للعضو الكتابة
+  // استرجاع: يرجع للكـاتقوري المفتوح + يرجع للعضو الكتابة
   if (interaction.customId === "restore_ticket") {
     if (!ownerId) return interaction.reply({ content: "❌ ما قدرت أحدد صاحب التكت.", ephemeral: true });
 
     await channel.setParent(TICKETS_CATEGORY_ID).catch(() => {});
-    await channel.permissionOverwrites.edit(ownerId, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: true,
-    }).catch(() => {});
+    await channel.permissionOverwrites
+      .edit(ownerId, {
+        ViewChannel: true,
+        ReadMessageHistory: true,
+        SendMessages: true,
+      })
+      .catch(() => {});
     await setTopicStatus(channel, "open");
 
-    // غير الأزرار: يرجع تنبيه/إغلاق/حذف
-    const lastMsg = await channel.messages.fetch({ limit: 10 }).then(col => col.find(m => m.author.id === client.user.id)).catch(() => null);
+    const lastMsg = await channel.messages
+      .fetch({ limit: 10 })
+      .then((col) => col.find((m) => m.author.id === client.user.id))
+      .catch(() => null);
+
     if (lastMsg) {
       await lastMsg.edit({ components: [openControlsRow()] }).catch(() => {});
     } else {
@@ -442,7 +452,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "♻️ تم استرجاع التذكرة.", ephemeral: true });
   }
 
-  // زر حذف: حذف نهائي (للإدارة)
+  // حذف: حذف نهائي
   if (interaction.customId === "delete_ticket") {
     await interaction.reply({ content: "🗑️ جاري حذف التذكرة...", ephemeral: true });
     setTimeout(() => channel.delete().catch(() => {}), 1500);
@@ -450,8 +460,4 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// تشغيل البوت
 client.login(process.env.TOKEN);
-
-
-
