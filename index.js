@@ -12,451 +12,200 @@ const {
   PermissionsBitField,
   EmbedBuilder,
   StringSelectMenuBuilder,
+  SlashCommandBuilder,
+  REST,
+  Routes,
 } = require("discord.js");
 
-// =======================
-// 🔧 إعدادات السيرفر
-// =======================
-const STAFF_ROLE_ID = "1448055249762910299";            // رتبة الإدارة/الدعم (صلاحية التحكم)
-const TICKETS_CATEGORY_ID = "1455273132146294970";      // كاتقوري التكتات المفتوحة
-const LOG_CATEGORY_ID = "1455700238840102984";          // كاتقوري التكتات المقفولة/اللوق
-const TICKET_LOG_CHANNEL_ID = "1455703131500314788";    // روم التنبيه عند فتح التكت
-
-// ✅ رول تنبيه واحد فقط (للدعم + الفعاليات)
+/* =======================
+   🔧 الإعدادات
+======================= */
+const STAFF_ROLE_ID = "1448055249762910299";
+const TICKETS_CATEGORY_ID = "1455273132146294970";
+const LOG_CATEGORY_ID = "1455700238840102984";
+const TICKET_LOG_CHANNEL_ID = "1455703131500314788";
 const PING_ROLE_ID = "1455718248493482007";
-
 const PREFIX = "!";
+
 const DEFAULT_PANEL_IMAGE =
   "https://media.discordapp.net/attachments/959615303170555964/1455276224459837674/ffgrfg.gif";
 
-// =======================
-// ✅ إعدادات قابلة للتغيير من الشات (config.json)
-// =======================
+/* =======================
+   📁 Config
+======================= */
 const CONFIG_PATH = path.join(__dirname, "config.json");
 const DEFAULT_CONFIG = {
   panelImageUrl: DEFAULT_PANEL_IMAGE,
-  panelText: [
-    "## 🎟️ نظام التذاكر",
-    "",
-    "👇 **اختر نوع التذكرة من القائمة**",
-    "",
-    "🛠️ **فتح تذكرة الدعم** — للمساعدة والاستفسارات",
-    "🎉 **تذكرة مشاركة لفعالية** — تسجيل/مشاركة بالفعالية",
-  ].join("\n"),
+  panelText: "## 🎟️ نظام التذاكر\n\nاختر نوع التذكرة من القائمة 👇",
 };
 
 function loadConfig() {
-  try {
-    if (!fs.existsSync(CONFIG_PATH)) {
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf8");
-      return { ...DEFAULT_CONFIG };
-    }
-    const raw = fs.readFileSync(CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    return { ...DEFAULT_CONFIG, ...parsed };
-  } catch {
-    return { ...DEFAULT_CONFIG };
+  if (!fs.existsSync(CONFIG_PATH)) {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
   }
+  return JSON.parse(fs.readFileSync(CONFIG_PATH));
 }
+const config = loadConfig();
 
-function saveConfig(cfg) {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf8");
-}
-
-let config = loadConfig();
-
-// =======================
-// نوعين تكت فقط
-// =======================
+/* =======================
+   🎫 أنواع التكت
+======================= */
 const TICKET_TYPES = {
   support: {
-    label: "فتح تذكرة الدعم",
+    label: "تذكرة دعم",
     emoji: "🛠️",
     prefix: "support",
-    title: "🛠️ تذكرة دعم",
-    desc: "اكتب مشكلتك أو استفسارك بالتفصيل وسيتم مساعدتك.",
+    desc: "اكتب مشكلتك وسيتم الرد عليك",
   },
   event: {
-    label: "تذكرة مشاركة لفعالية",
+    label: "تذكرة فعالية",
     emoji: "🎉",
     prefix: "event",
-    title: "🎉 تذكرة فعالية",
-    desc: "اكتب معلومات المشاركة/التسجيل الخاصة بالفعالية وسيتم الرد عليك.",
+    desc: "اكتب تفاصيل المشاركة",
   },
 };
 
+/* =======================
+   🤖 البوت
+======================= */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
   ],
-  partials: [Partials.Channel, Partials.Message],
+  partials: [Partials.Channel],
 });
 
-client.once("ready", () => console.log(`✅ Bot logged in as ${client.user.tag}`));
+client.once("ready", async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
 
-// =======================
-// Helpers
-// =======================
-function sanitizeUsername(name) {
-  return (name || "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
-}
+  // تسجيل أمر السلاش
+  const commands = [
+    new SlashCommandBuilder()
+      .setName("send")
+      .setDescription("إرسال رسالة خاصة لكل أعضاء السيرفر")
+      .addStringOption((o) =>
+        o.setName("message").setDescription("نص الرسالة").setRequired(true)
+      ),
+  ];
 
+  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+  await rest.put(Routes.applicationCommands(client.user.id), {
+    body: commands,
+  });
+});
+
+/* =======================
+   🧠 Helpers
+======================= */
 async function isStaff(member) {
   return (
-    member.roles.cache.has(STAFF_ROLE_ID) ||
     member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-    member.permissions.has(PermissionsBitField.Flags.ManageChannels)
+    member.roles.cache.has(STAFF_ROLE_ID)
   );
 }
 
-function parseTopic(channel) {
-  const topic = channel?.topic || "";
-  const ownerMatch = topic.match(/owner=(\d+)/);
-  const typeMatch = topic.match(/type=([a-z]+)/);
-  const statusMatch = topic.match(/status=(open|closed)/);
-
-  return {
-    ownerId: ownerMatch ? ownerMatch[1] : null,
-    type: typeMatch ? typeMatch[1] : null,
-    status: statusMatch ? statusMatch[1] : "open",
-  };
-}
-
-async function setTopicStatus(channel, status) {
-  const { ownerId, type } = parseTopic(channel);
-  if (!ownerId || !type) return;
-  const newTopic = `owner=${ownerId};type=${type};status=${status}`;
-  await channel.setTopic(newTopic).catch(() => {});
-}
-
-// =======================
-// تنبيه فتح التكت (في روم التنبيه)
-// =======================
-async function sendOpenLog({ guild, user, channel, type }) {
-  try {
-    const logCh = await guild.channels.fetch(TICKET_LOG_CHANNEL_ID).catch(() => null);
-    if (!logCh) return;
-
-    const t = TICKET_TYPES[type] || { label: "تذكرة", emoji: "🎫" };
-
-    const embed = new EmbedBuilder()
-      .setTitle("📩 تم فتح تذكرة جديدة")
-      .setDescription(`**النوع:** ${t.emoji} ${t.label}\n**العضو:** ${user}\n**الروم:** ${channel}`)
-      .setColor(0x9b59ff);
-
-    // ✅ منشن رول واحد فقط
-    const ping = PING_ROLE_ID ? `<@&${PING_ROLE_ID}>` : "";
-
-    await logCh.send({ content: ping, embeds: [embed] });
-  } catch {}
-}
-
-// =======================
-// Buttons
-// =======================
-function openControlsRow() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("notify_owner").setLabel("🔔 تنبيه").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("close_ticket").setLabel("🔒 إغلاق").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("delete_ticket").setLabel("🗑️ حذف").setStyle(ButtonStyle.Danger)
-  );
-}
-
-function closedControlsRow() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("restore_ticket").setLabel("♻️ استرجاع").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("delete_ticket").setLabel("🗑️ حذف").setStyle(ButtonStyle.Danger)
-  );
-}
-
-// =======================
-// إنشاء تكت (يسمح بأكثر من تكت لنفس الشخص ✅)
-// =======================
+/* =======================
+   🎫 إنشاء تكت
+======================= */
 async function createTicket(guild, user, type) {
   const t = TICKET_TYPES[type];
-  const safeUser = sanitizeUsername(user.username) || user.id;
-
-  const unique = Date.now().toString().slice(-6);
-  const name = `ticket-${t.prefix}-${safeUser}-${unique}`.slice(0, 100);
-
   const channel = await guild.channels.create({
-    name,
+    name: `ticket-${t.prefix}-${user.username}`,
     type: ChannelType.GuildText,
     parent: TICKETS_CATEGORY_ID,
-    topic: `owner=${user.id};type=${type};status=open`,
+    topic: `owner=${user.id}`,
     permissionOverwrites: [
-      { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-      {
-        id: user.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ReadMessageHistory,
-        ],
-      },
-      {
-        id: STAFF_ROLE_ID,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ReadMessageHistory,
-          PermissionsBitField.Flags.ManageChannels,
-          PermissionsBitField.Flags.ManageMessages,
-        ],
-      },
+      { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
+      { id: user.id, allow: ["ViewChannel", "SendMessages"] },
+      { id: STAFF_ROLE_ID, allow: ["ViewChannel", "SendMessages"] },
     ],
   });
 
-  const embed = new EmbedBuilder()
-    .setTitle(t.title)
-    .setDescription(`أهلًا ${user} ✨\n${t.desc}`)
-    .setColor(0x9b59ff);
-
   await channel.send({
-    content: `${user}`, // بدون منشن الإدارة
-    embeds: [embed],
-    components: [openControlsRow()],
+    embeds: [
+      new EmbedBuilder()
+        .setTitle(`${t.emoji} ${t.label}`)
+        .setDescription(t.desc)
+        .setColor(0x9b59ff),
+    ],
   });
 
-  await sendOpenLog({ guild, user, channel, type });
-  return { channel };
+  return channel;
 }
 
-// =======================
-// إرسال لوحة التكت
-// =======================
+/* =======================
+   📌 لوحة التكت
+======================= */
 async function sendPanel(channel) {
-  const imageEmbed = new EmbedBuilder().setColor(0x9b59ff).setImage(config.panelImageUrl);
-  const textEmbed = new EmbedBuilder().setColor(0x9b59ff).setDescription(config.panelText);
-
   const select = new StringSelectMenuBuilder()
     .setCustomId("ticket_select")
-    .setPlaceholder("اختر نوع التذكرة...")
+    .setPlaceholder("اختر نوع التذكرة")
     .addOptions(
-      { label: "فتح تذكرة الدعم", value: "support", emoji: "🛠️" },
-      { label: "تذكرة مشاركة لفعالية", value: "event", emoji: "🎉" }
+      { label: "دعم", value: "support", emoji: "🛠️" },
+      { label: "فعالية", value: "event", emoji: "🎉" }
     );
 
-  const row = new ActionRowBuilder().addComponents(select);
-
-  await channel.send({ embeds: [imageEmbed] });
-  await channel.send({ embeds: [textEmbed], components: [row] });
+  await channel.send({
+    embeds: [
+      new EmbedBuilder()
+        .setImage(config.panelImageUrl)
+        .setColor(0x9b59ff),
+      new EmbedBuilder().setDescription(config.panelText).setColor(0x9b59ff),
+    ],
+    components: [new ActionRowBuilder().addComponents(select)],
+  });
 }
 
-// =======================
-// أوامر الشات
-// =======================
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-  if (!message.guild) return;
-  if (!message.content.startsWith(PREFIX)) return;
+/* =======================
+   💬 أوامر عادية
+======================= */
+client.on("messageCreate", async (msg) => {
+  if (!msg.content.startsWith(PREFIX)) return;
+  if (!(await isStaff(msg.member))) return;
 
-  const cmd = message.content.slice(PREFIX.length).trim().split(" ")[0].toLowerCase();
-
-  // !panel (للإدارة فقط) + حذف رسالة العضو/الرد بعد 7 ثواني إن كان عضو
-  if (cmd === "panel") {
-    const member = await message.guild.members.fetch(message.author.id);
-
-    if (!(await isStaff(member))) {
-      const reply = await message.reply("❌ هذا الأمر مخصص للإدارة فقط.");
-      setTimeout(() => {
-        reply.delete().catch(() => {});
-        message.delete().catch(() => {});
-      }, 7000);
-      return;
-    }
-
-    await sendPanel(message.channel);
-    message.delete().catch(() => {});
-    return;
-  }
-
-  // !setimg رابط (للإدارة فقط)
-  if (cmd === "setimg") {
-    const member = await message.guild.members.fetch(message.author.id);
-    if (!(await isStaff(member))) return;
-
-    const url = message.content.split(" ").slice(1).join(" ").trim();
-    if (!url || !url.startsWith("http")) {
-      const r = await message.reply("اكتب الرابط بعد الأمر: `!setimg رابط`");
-      setTimeout(() => {
-        r.delete().catch(() => {});
-        message.delete().catch(() => {});
-      }, 7000);
-      return;
-    }
-
-    config.panelImageUrl = url;
-    saveConfig(config);
-
-    const r = await message.reply("✅ تم تغيير صورة اللوحة.");
-    setTimeout(() => {
-      r.delete().catch(() => {});
-      message.delete().catch(() => {});
-    }, 7000);
-    return;
-  }
-
-  // !settext (للإدارة فقط) — اكتب النص برسالة ثم رد عليها بـ !settext
-  if (cmd === "settext") {
-    const member = await message.guild.members.fetch(message.author.id);
-    if (!(await isStaff(member))) return;
-
-    if (!message.reference?.messageId) {
-      const r = await message.reply("❌ اكتب النص برسالة، ثم رد على نفس الرسالة بـ `!settext`");
-      setTimeout(() => {
-        r.delete().catch(() => {});
-        message.delete().catch(() => {});
-      }, 7000);
-      return;
-    }
-
-    const replied = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
-    if (!replied || !replied.content?.trim()) {
-      const r = await message.reply("❌ ما لقيت نص في الرسالة اللي رديت عليها.");
-      setTimeout(() => {
-        r.delete().catch(() => {});
-        message.delete().catch(() => {});
-      }, 7000);
-      return;
-    }
-
-    config.panelText = replied.content.trim();
-    saveConfig(config);
-
-    const r = await message.reply("✅ تم تحديث نص اللوحة.");
-    setTimeout(() => {
-      r.delete().catch(() => {});
-      message.delete().catch(() => {});
-    }, 7000);
-    return;
+  if (msg.content === "!panel") {
+    await sendPanel(msg.channel);
+    msg.delete().catch(() => {});
   }
 });
 
-// =======================
-// Interactions (Dropdown + Buttons)
-// =======================
-client.on("interactionCreate", async (interaction) => {
-  // Dropdown فتح تكت
-  if (interaction.isStringSelectMenu() && interaction.customId === "ticket_select") {
-    const type = interaction.values[0];
-    if (!TICKET_TYPES[type]) return interaction.reply({ content: "اختيار غير صحيح.", ephemeral: true });
-
-    try {
-      const result = await createTicket(interaction.guild, interaction.user, type);
-      if (!result.channel) return interaction.reply({ content: "صار خطأ في فتح التكت.", ephemeral: true });
-      return interaction.reply({ content: "✅ تم فتح التذكرة.", ephemeral: true });
-    } catch (e) {
-      console.error(e);
-      return interaction.reply({ content: "❌ فشل إنشاء التكت (تحقق من الكاتقوري/الصلاحيات).", ephemeral: true });
-    }
+/* =======================
+   🎛️ Interactions
+======================= */
+client.on("interactionCreate", async (i) => {
+  /* Dropdown */
+  if (i.isStringSelectMenu() && i.customId === "ticket_select") {
+    await createTicket(i.guild, i.user, i.values[0]);
+    return i.reply({ content: "✅ تم فتح التذكرة", ephemeral: true });
   }
 
-  // الأزرار داخل التكت
-  if (!interaction.isButton()) return;
+  /* Slash /send */
+  if (i.isChatInputCommand() && i.commandName === "send") {
+    if (!(await isStaff(i.member)))
+      return i.reply({ content: "❌ للإدارة فقط", ephemeral: true });
 
-  const channel = interaction.channel;
-  const guild = interaction.guild;
+    const text = i.options.getString("message");
+    await i.reply({ content: "📤 جاري الإرسال...", ephemeral: true });
 
-  if (!channel || channel.type !== ChannelType.GuildText || !channel.name.startsWith("ticket-")) {
-    return interaction.reply({ content: "هذا الزر يعمل داخل التكت فقط.", ephemeral: true });
-  }
+    const members = await i.guild.members.fetch();
+    let sent = 0;
 
-  const member = await guild.members.fetch(interaction.user.id);
-  const staff = await isStaff(member);
-
-  const adminOnlyButtons = ["notify_owner", "close_ticket", "restore_ticket", "delete_ticket"];
-  if (adminOnlyButtons.includes(interaction.customId) && !staff) {
-    return interaction.reply({ content: "❌ هذا الزر للإدارة/الدعم فقط.", ephemeral: true });
-  }
-
-  const { ownerId, type } = parseTopic(channel);
-
-  // زر تنبيه: DM لصاحب التكت
-  if (interaction.customId === "notify_owner") {
-    if (!ownerId) return interaction.reply({ content: "❌ ما قدرت أحدد صاحب التكت.", ephemeral: true });
-
-    const ownerUser = await client.users.fetch(ownerId).catch(() => null);
-    if (!ownerUser) return interaction.reply({ content: "❌ ما قدرت أوصل لصاحب التكت.", ephemeral: true });
-
-    const t = TICKET_TYPES[type] || { label: "تذكرة", emoji: "🎫" };
-
-    const dmText =
-      `📩 **تنبيه من الإدارة**\n` +
-      `تم الرد على تذكرتك: ${t.emoji} **${t.label}**\n` +
-      `ادخل هنا لمتابعة التكت: ${channel.url}`;
-
-    await ownerUser.send({ content: dmText }).catch(() => {});
-    return interaction.reply({ content: "✅ تم إرسال تنبيه خاص لصاحب التكت.", ephemeral: true });
-  }
-
-  // إغلاق: ينقل للوق + يمنع العضو من الكتابة
-  if (interaction.customId === "close_ticket") {
-    if (!ownerId) return interaction.reply({ content: "❌ ما قدرت أحدد صاحب التكت.", ephemeral: true });
-
-    await channel.permissionOverwrites
-      .edit(ownerId, {
-        ViewChannel: true,
-        ReadMessageHistory: true,
-        SendMessages: false,
-      })
-      .catch(() => {});
-
-    await channel.setParent(LOG_CATEGORY_ID).catch(() => {});
-    await setTopicStatus(channel, "closed");
-
-    const lastMsg = await channel.messages
-      .fetch({ limit: 10 })
-      .then((col) => col.find((m) => m.author.id === client.user.id))
-      .catch(() => null);
-
-    if (lastMsg) {
-      await lastMsg.edit({ components: [closedControlsRow()] }).catch(() => {});
-    } else {
-      await channel
-        .send({ content: "🔒 تم إغلاق التذكرة. (الإدارة تستطيع الاسترجاع)", components: [closedControlsRow()] })
-        .catch(() => {});
+    for (const m of members.values()) {
+      if (m.user.bot) continue;
+      try {
+        await m.send(text);
+        sent++;
+      } catch {}
     }
 
-    return interaction.reply({ content: "🔒 تم إغلاق التذكرة ونقلها للوق.", ephemeral: true });
-  }
-
-  // استرجاع: يرجع للكـاتقوري المفتوح + يرجع للعضو الكتابة
-  if (interaction.customId === "restore_ticket") {
-    if (!ownerId) return interaction.reply({ content: "❌ ما قدرت أحدد صاحب التكت.", ephemeral: true });
-
-    await channel.setParent(TICKETS_CATEGORY_ID).catch(() => {});
-    await channel.permissionOverwrites
-      .edit(ownerId, {
-        ViewChannel: true,
-        ReadMessageHistory: true,
-        SendMessages: true,
-      })
-      .catch(() => {});
-    await setTopicStatus(channel, "open");
-
-    const lastMsg = await channel.messages
-      .fetch({ limit: 10 })
-      .then((col) => col.find((m) => m.author.id === client.user.id))
-      .catch(() => null);
-
-    if (lastMsg) {
-      await lastMsg.edit({ components: [openControlsRow()] }).catch(() => {});
-    } else {
-      await channel.send({ content: "♻️ تم استرجاع التذكرة.", components: [openControlsRow()] }).catch(() => {});
-    }
-
-    return interaction.reply({ content: "♻️ تم استرجاع التذكرة.", ephemeral: true });
-  }
-
-  // حذف: حذف نهائي
-  if (interaction.customId === "delete_ticket") {
-    await interaction.reply({ content: "🗑️ جاري حذف التذكرة...", ephemeral: true });
-    setTimeout(() => channel.delete().catch(() => {}), 1500);
-    return;
+    return i.followUp({
+      content: `✅ تم الإرسال إلى ${sent} عضو`,
+      ephemeral: true,
+    });
   }
 });
 
