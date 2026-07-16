@@ -182,26 +182,58 @@ client.on("messageCreate", async (message) => {
   }
 
   // send (رد على رسالة)
-  if (cmd === "send") {
-    const member = await message.guild.members.fetch(message.author.id);
-    if (!isStaff(member)) return;
+if (cmd === "send") {
+  const member = await message.guild.members.fetch(message.author.id);
+  if (!isStaff(member)) return;
 
-    if (!message.reference) return message.reply("❌ رد على رسالة");
-
-    const targetMsg = await message.channel.messages.fetch(message.reference.messageId);
-    const text = targetMsg.content;
-
-    const role = message.guild.roles.cache.get(BROADCAST_ROLE_ID);
-    if (!role) return;
-
-    let sent = 0;
-    for (const m of role.members.values()) {
-      await m.send(text).catch(() => {});
-      sent++;
-    }
-
-    message.reply(`✅ تم الإرسال لـ ${sent} شخص`);
+  if (!message.reference) {
+    return message.reply("❌ لازم ترد على الرسالة اللي تبي ترسلها.");
   }
+
+  const targetMsg = await message.channel.messages.fetch(
+    message.reference.messageId
+  );
+
+  const text = targetMsg.content || "";
+  const attachments = [...targetMsg.attachments.values()].map(a => a.url);
+
+  // رابط الصورة اللي تنرسل أولاً
+  const IMAGE_URL = "https://media.discordapp.net/attachments/1453309814183825450/1527213330601742356/ffgrfg.gif?ex=6a59d7c0&is=6a588640&hm=beb4c6143ed326bb242ae773767334a7d3651cef20465729cf890cd0dc8c2941&=";
+
+  const role = message.guild.roles.cache.get(BROADCAST_ROLE_ID);
+  if (!role) {
+    return message.reply("❌ الرتبة غير موجودة.");
+  }
+
+  let sent = 0;
+
+  for (const user of role.members.values()) {
+    try {
+      // يرسل الصورة أولاً
+      if (IMAGE_URL && IMAGE_URL.startsWith("http")) {
+        await user.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(0x9b59ff)
+              .setImage(IMAGE_URL),
+          ],
+        });
+      }
+
+      // ثم يرسل الرسالة الأصلية (النص + أي صور مرفقة)
+      await user.send({
+        content: text || undefined,
+        files: attachments,
+      });
+
+      sent++;
+    } catch (err) {
+      console.log(`تعذر الإرسال إلى ${user.user.tag}`);
+    }
+  }
+
+  message.reply(`✅ تم إرسال الرسالة إلى ${sent} عضو.`);
+}
 });
 
 // =======================
