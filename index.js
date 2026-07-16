@@ -86,7 +86,7 @@ async function setStatus(channel, status) {
 async function sendPanel(channel) {
 
   // رابط الصورة
-  const IMAGE_URL = "حط_رابط_الصورة_هنا";
+  const IMAGE_URL = "https://media.discordapp.net/attachments/1453309814183825450/1527213330601742356/ffgrfg.gif?ex=6a59d7c0&is=6a588640&hm=beb4c6143ed326bb242ae773767334a7d3651cef20465729cf890cd0dc8c2941&=";
 
   // الصورة
   const imageEmbed = new EmbedBuilder()
