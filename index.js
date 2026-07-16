@@ -182,28 +182,35 @@ client.on("messageCreate", async (message) => {
   }
 
   // send (رد على رسالة)
-  if (cmd === "send") {
-    const member = await message.guild.members.fetch(message.author.id);
-    if (!isStaff(member)) return;
+ if (cmd === "send") {
+  const member = await message.guild.members.fetch(message.author.id);
+  if (!isStaff(member)) return;
 
-    if (!message.reference) return message.reply("❌ رد على رسالة");
+  if (!message.reference)
+    return message.reply("❌ رد على الرسالة أولاً.");
 
-    const targetMsg = await message.channel.messages.fetch(message.reference.messageId);
-    const text = targetMsg.content;
+  const targetMsg = await message.channel.messages.fetch(message.reference.messageId);
 
-    const role = message.guild.roles.cache.get(BROADCAST_ROLE_ID);
-    if (!role) return;
+  const text = targetMsg.content || "";
+  const files = targetMsg.attachments.map(a => a.url);
 
-    let sent = 0;
-    for (const m of role.members.values()) {
-      await m.send(text).catch(() => {});
+  const role = message.guild.roles.cache.get(BROADCAST_ROLE_ID);
+  if (!role) return message.reply("❌ الرتبة غير موجودة.");
+
+  let sent = 0;
+
+  for (const m of role.members.values()) {
+    try {
+      await m.send({
+        content: text,
+        files: files
+      });
       sent++;
-    }
-
-    message.reply(`✅ تم الإرسال لـ ${sent} شخص`);
+    } catch {}
   }
-});
 
+  message.reply(`✅ تم الإرسال إلى ${sent} شخص.`);
+}
 // =======================
 // Interactions
 // =======================
