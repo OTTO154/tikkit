@@ -34,7 +34,7 @@ const TICKET_TYPES = {
     desc: "اكتب مشكلتك وسيتم الرد عليك.",
   },
   event: {
-    label: "تذكرة مشاركة للفعالية",
+    label: "تذكرة مشاركة لفعالية",
     emoji: "🎉",
     title: "🎉 تذكرة فعالية",
     desc: "اكتب تفاصيل المشاركة.",
@@ -97,7 +97,7 @@ async function sendPanel(channel) {
     .setPlaceholder("اختر نوع التذكرة")
     .addOptions(
       { label: "فتح تذكرة الدعم", value: "support", emoji: "🛠️" },
-      { label: "تذكرة مشاركة للفعالية", value: "event", emoji: "🎉" }
+      { label: "تذكرة مشاركة لفعالية", value: "event", emoji: "🎉" }
     );
 
   await channel.send({
@@ -182,35 +182,28 @@ client.on("messageCreate", async (message) => {
   }
 
   // send (رد على رسالة)
- if (cmd === "send") {
-  const member = await message.guild.members.fetch(message.author.id);
-  if (!isStaff(member)) return;
+  if (cmd === "send") {
+    const member = await message.guild.members.fetch(message.author.id);
+    if (!isStaff(member)) return;
 
-  if (!message.reference)
-    return message.reply("❌ رد على الرسالة أولاً.");
+    if (!message.reference) return message.reply("❌ رد على رسالة");
 
-  const targetMsg = await message.channel.messages.fetch(message.reference.messageId);
+    const targetMsg = await message.channel.messages.fetch(message.reference.messageId);
+    const text = targetMsg.content;
 
-  const text = targetMsg.content || "";
-  const files = targetMsg.attachments.map(a => a.url);
+    const role = message.guild.roles.cache.get(BROADCAST_ROLE_ID);
+    if (!role) return;
 
-  const role = message.guild.roles.cache.get(BROADCAST_ROLE_ID);
-  if (!role) return message.reply("❌ الرتبة غير موجودة.");
-
-  let sent = 0;
-
-  for (const m of role.members.values()) {
-    try {
-      await m.send({
-        content: text,
-        files: files
-      });
+    let sent = 0;
+    for (const m of role.members.values()) {
+      await m.send(text).catch(() => {});
       sent++;
-    } catch {}
-  }
+    }
 
-  message.reply(`✅ تم الإرسال إلى ${sent} شخص.`);
-}
+    message.reply(`✅ تم الإرسال لـ ${sent} شخص`);
+  }
+});
+
 // =======================
 // Interactions
 // =======================
