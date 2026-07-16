@@ -34,7 +34,7 @@ const TICKET_TYPES = {
     desc: "اكتب مشكلتك وسيتم الرد عليك.",
   },
   event: {
-    label: "تذكرة مشاركة لفعالية",
+    label: "تذكرة مشاركة للفعالية",
     emoji: "🎉",
     title: "🎉 تذكرة فعالية",
     desc: "اكتب تفاصيل المشاركة.",
@@ -97,7 +97,7 @@ async function sendPanel(channel) {
     .setPlaceholder("اختر نوع التذكرة")
     .addOptions(
       { label: "فتح تذكرة الدعم", value: "support", emoji: "🛠️" },
-      { label: "تذكرة مشاركة لفعالية", value: "event", emoji: "🎉" }
+      { label: "تذكرة مشاركة للفعالية", value: "event", emoji: "🎉" }
     );
 
   await channel.send({
