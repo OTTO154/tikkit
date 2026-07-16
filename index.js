@@ -83,26 +83,62 @@ async function setStatus(channel, status) {
   await channel.setTopic(`owner=${ownerId};status=${status}`).catch(() => {});
 }
 
-// =======================
-// لوحة التكت
-// =======================
 async function sendPanel(channel) {
-  const embed = new EmbedBuilder()
+
+  // رابط الصورة
+  const IMAGE_URL = "حط_رابط_الصورة_هنا";
+
+  // الصورة
+  const imageEmbed = new EmbedBuilder()
     .setColor(0x9b59ff)
-    .setTitle("🎟️ نظام التذاكر")
-    .setDescription("اختر نوع التذكرة 👇");
+    .setImage(IMAGE_URL);
+
+  // الكلام
+  const textEmbed = new EmbedBuilder()
+    .setColor(0x9b59ff)
+    .setDescription(`
+# 🎫 نظام التذاكر
+
+**مرحباً بك في نظام التذاكر**
+
+يرجى اختيار نوع التذكرة من القائمة بالأسفل.
+
+> 🛠️ **فتح تذكرة الدعم**
+> للمشاكل والاستفسارات.
+
+> 🎉 **تذكرة مشاركة لفعالية**
+> للمشاركة في الفعاليات.
+
+**يرجى عدم فتح تذاكر بدون سبب، وسيتم التعامل مع جميع الطلبات بأسرع وقت.**
+`);
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId("ticket_select")
-    .setPlaceholder("اختر نوع التذكرة")
+    .setPlaceholder("اختر نوع التذكرة...")
     .addOptions(
-      { label: "فتح تذكرة الدعم", value: "support", emoji: "🛠️" },
-      { label: "تذكرة مشاركة لفعالية", value: "event", emoji: "🎉" }
+      {
+        label: "فتح تذكرة الدعم",
+        value: "support",
+        emoji: "🛠️",
+      },
+      {
+        label: "تذكرة مشاركة لفعالية",
+        value: "event",
+        emoji: "🎉",
+      }
     );
 
+  const row = new ActionRowBuilder().addComponents(menu);
+
+  // يرسل الصورة أولاً
   await channel.send({
-    embeds: [embed],
-    components: [new ActionRowBuilder().addComponents(menu)],
+    embeds: [imageEmbed],
+  });
+
+  // ثم الكلام مع القائمة
+  await channel.send({
+    embeds: [textEmbed],
+    components: [row],
   });
 }
 
